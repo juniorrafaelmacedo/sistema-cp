@@ -22,6 +22,8 @@ import {
   Filter,
   Check,
   FileText,
+  Lock,
+  Unlock,
 } from 'lucide-react';
 import { WeeklyClosureRecord, WeeklyScheduleItem, CustomNoteItem, UserProfile } from '../types';
 import { WeekPeriodInfo, getISOWeekNumber, getWeekPeriodInfo, getAllWeeksOfYear } from '../utils/weekUtils';
@@ -31,24 +33,30 @@ interface WeeklyClosuresViewProps {
   weeklyClosures: WeeklyClosureRecord[];
   weeklySchedules: WeeklyScheduleItem[];
   completedWeeklyIds: string[];
+  completedWeeklyByWeek?: Record<string, string[]>;
   customNotes: CustomNoteItem[];
   currentUser?: UserProfile | null;
   onSaveClosure: (closure: Omit<WeeklyClosureRecord, 'id' | 'closedAt'>) => void;
   onUpdateClosure: (id: string, updated: Partial<WeeklyClosureRecord>) => void;
   onDeleteClosure: (id: string) => void;
   onNavigateToSchedule?: () => void;
+  onReopenClosure?: (year: number, weekNumber: number) => void;
+  onLockClosure?: (year: number, weekNumber: number) => void;
 }
 
 export const WeeklyClosuresView: React.FC<WeeklyClosuresViewProps> = ({
   weeklyClosures = [],
   weeklySchedules = [],
   completedWeeklyIds = [],
+  completedWeeklyByWeek = {},
   customNotes = [],
   currentUser,
   onSaveClosure,
   onUpdateClosure,
   onDeleteClosure,
   onNavigateToSchedule,
+  onReopenClosure,
+  onLockClosure,
 }) => {
   const currentISO = useMemo(() => getISOWeekNumber(new Date()), []);
   const [selectedYear, setSelectedYear] = useState<number>(currentISO.year);
@@ -64,6 +72,21 @@ export const WeeklyClosuresView: React.FC<WeeklyClosuresViewProps> = ({
   const modalWeekInfo: WeekPeriodInfo = useMemo(() => {
     return getWeekPeriodInfo(modalWeekNumber, selectedYear);
   }, [modalWeekNumber, selectedYear]);
+
+  // Compute completed tasks for modalWeekNumber
+  const modalCompletedTaskIds = useMemo(() => {
+    const weekKey = `${selectedYear}_w${modalWeekNumber}`;
+    if (completedWeeklyByWeek && Array.isArray(completedWeeklyByWeek[weekKey])) {
+      return completedWeeklyByWeek[weekKey];
+    }
+    if (editingClosure && Array.isArray(editingClosure.completedTaskIds)) {
+      return editingClosure.completedTaskIds;
+    }
+    if (modalWeekNumber === currentISO.weekNumber && Array.isArray(completedWeeklyIds)) {
+      return completedWeeklyIds;
+    }
+    return [];
+  }, [completedWeeklyByWeek, selectedYear, modalWeekNumber, editingClosure, currentISO.weekNumber, completedWeeklyIds]);
 
   // Current week closure check
   const currentWeekClosure = useMemo(() => {
@@ -362,12 +385,12 @@ Emitido automaticamente pelo Sistema de Tesouraria MPP
                         </span>
                         <span
                           className={`text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wider ${
-                            percentage === 100
+                            closure.status === 'closed'
                               ? 'bg-emerald-950 text-emerald-300 border border-emerald-700/50'
                               : 'bg-amber-950 text-amber-300 border border-amber-700/50'
                           }`}
                         >
-                          {percentage === 100 ? '100% Concluída' : `${percentage}% Executado`}
+                          {closure.status === 'closed' ? '🔒 Fechada & Bloqueada' : '📝 Em Andamento'}
                         </span>
                       </div>
 
@@ -388,6 +411,38 @@ Emitido automaticamente pelo Sistema de Tesouraria MPP
 
                   {/* Actions */}
                   <div className="flex items-center gap-2 self-end lg:self-center">
+                    {closure.status === 'closed' ? (
+                      onReopenClosure && (
+                        <button
+                          onClick={() => {
+                            if (window.confirm(`Deseja reabrir o período da Semana ${closure.weekNumber}/${closure.year}?`)) {
+                              onReopenClosure(closure.year, closure.weekNumber);
+                            }
+                          }}
+                          className="px-2.5 py-1.5 bg-amber-950/70 hover:bg-amber-900 text-amber-200 border border-amber-700/60 rounded-xl text-xs font-semibold flex items-center gap-1 transition-colors"
+                          title="Reabrir período para permitir alterar tarefas"
+                        >
+                          <Unlock className="w-3.5 h-3.5" />
+                          <span>Reabrir</span>
+                        </button>
+                      )
+                    ) : (
+                      onLockClosure && (
+                        <button
+                          onClick={() => {
+                            if (window.confirm(`Deseja fechar e bloquear o período da Semana ${closure.weekNumber}/${closure.year}?`)) {
+                              onLockClosure(closure.year, closure.weekNumber);
+                            }
+                          }}
+                          className="px-2.5 py-1.5 bg-emerald-950/70 hover:bg-emerald-900 text-emerald-200 border border-emerald-700/60 rounded-xl text-xs font-semibold flex items-center gap-1 transition-colors"
+                          title="Fechar e bloquear período"
+                        >
+                          <Lock className="w-3.5 h-3.5" />
+                          <span>Bloquear</span>
+                        </button>
+                      )
+                    )}
+
                     <button
                       onClick={() => handleExportReport(closure)}
                       className="p-2 text-zinc-400 hover:text-teal-300 hover:bg-[#202020] rounded-xl transition-colors"
@@ -508,7 +563,7 @@ Emitido automaticamente pelo Sistema de Tesouraria MPP
         }}
         selectedWeekInfo={modalWeekInfo}
         weeklySchedules={weeklySchedules}
-        completedWeeklyIds={completedWeeklyIds}
+        completedWeeklyIds={modalCompletedTaskIds}
         customNotes={customNotes}
         currentUser={currentUser}
         existingClosure={editingClosure}

@@ -138,6 +138,8 @@ export interface WeeklyClosureRecord {
   }[];
   customNotesSnapshot?: CustomNoteItem[];
   status: 'closed' | 'audited' | 'in_progress';
+  reopenedAt?: string;
+  reopenedBy?: string;
 }
 
 export interface FinancialAssistantState {
@@ -153,6 +155,7 @@ export interface FinancialAssistantState {
   weeklyClosures: WeeklyClosureRecord[];
   completedDailyIds: string[];
   completedWeeklyIds: string[];
+  completedWeeklyByWeek?: Record<string, string[]>;
   completedMonthlyIds: string[];
   lastCompletedDate: string; // YYYY-MM-DD
 }

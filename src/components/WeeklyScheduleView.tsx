@@ -18,6 +18,9 @@ import {
   CalendarDays,
   Sparkles,
   Check,
+  Lock,
+  Unlock,
+  ShieldCheck,
 } from 'lucide-react';
 import { WeeklyScheduleItem, WeeklyClosureRecord, DayOfWeekKey } from '../types';
 import { getISOWeekNumber, getWeekPeriodInfo, getAllWeeksOfYear, WeekPeriodInfo } from '../utils/weekUtils';
@@ -25,10 +28,11 @@ import { getISOWeekNumber, getWeekPeriodInfo, getAllWeeksOfYear, WeekPeriodInfo 
 interface WeeklyScheduleViewProps {
   weeklySchedules: WeeklyScheduleItem[];
   completedWeeklyIds: string[];
+  completedWeeklyByWeek?: Record<string, string[]>;
   currentDayKey: DayOfWeekKey;
   weeklyClosures?: WeeklyClosureRecord[];
-  onToggleWeeklyItem: (id: string) => void;
-  onResetWeeklyChecklist: () => void;
+  onToggleWeeklyItem: (id: string, weekNumber?: number, year?: number) => { success: boolean; isClosed?: boolean; reason?: string } | void;
+  onResetWeeklyChecklist: (weekNumber?: number, year?: number) => void;
   onAddWeeklySchedule: (item: Omit<WeeklyScheduleItem, 'id'>) => void;
   onDeleteWeeklySchedule: (id: string) => void;
   onAddWeeklyGuideline?: (scheduleId: string, guidelineText: string) => void;
@@ -36,11 +40,14 @@ interface WeeklyScheduleViewProps {
   onUpdateWeeklySchedule?: (id: string, updated: Partial<WeeklyScheduleItem>) => void;
   onOpenClosureModal?: (weekNum: number) => void;
   onNavigateToClosures?: () => void;
+  onReopenWeeklyClosure?: (year: number, weekNumber: number) => void;
+  onLockWeeklyClosure?: (year: number, weekNumber: number) => void;
 }
 
 export const WeeklyScheduleView: React.FC<WeeklyScheduleViewProps> = ({
   weeklySchedules,
   completedWeeklyIds,
+  completedWeeklyByWeek = {},
   currentDayKey,
   weeklyClosures = [],
   onToggleWeeklyItem,
@@ -52,6 +59,8 @@ export const WeeklyScheduleView: React.FC<WeeklyScheduleViewProps> = ({
   onUpdateWeeklySchedule,
   onOpenClosureModal,
   onNavigateToClosures,
+  onReopenWeeklyClosure,
+  onLockWeeklyClosure,
 }) => {
   const [filterDay, setFilterDay] = useState<DayOfWeekKey | 'all'>('all');
   const [isAdding, setIsAdding] = useState(false);
@@ -136,12 +145,68 @@ export const WeeklyScheduleView: React.FC<WeeklyScheduleViewProps> = ({
     return item.dayOfWeek === filterDay;
   });
 
-  // Check if selected week is already closed
+  // Check if selected week is already closed or registered
   const existingClosureForSelectedWeek = useMemo(() => {
     return weeklyClosures.find(
       c => c.year === selectedYear && c.weekNumber === selectedWeekNumber
     );
   }, [weeklyClosures, selectedYear, selectedWeekNumber]);
+
+  // Calculate the effective completed tasks specifically for this selected week
+  const selectedWeekKey = `${selectedYear}_w${selectedWeekNumber}`;
+  const effectiveCompletedIds = useMemo(() => {
+    if (completedWeeklyByWeek && Array.isArray(completedWeeklyByWeek[selectedWeekKey])) {
+      return completedWeeklyByWeek[selectedWeekKey];
+    }
+    if (existingClosureForSelectedWeek && Array.isArray(existingClosureForSelectedWeek.completedTaskIds)) {
+      return existingClosureForSelectedWeek.completedTaskIds;
+    }
+    if (selectedWeekInfo.isCurrentWeek && Array.isArray(completedWeeklyIds)) {
+      return completedWeeklyIds;
+    }
+    return [];
+  }, [
+    completedWeeklyByWeek,
+    selectedWeekKey,
+    existingClosureForSelectedWeek,
+    selectedWeekInfo.isCurrentWeek,
+    completedWeeklyIds,
+  ]);
+
+  // Is this week closed/locked?
+  const isWeekClosed = existingClosureForSelectedWeek?.status === 'closed';
+
+  const handleToggleTask = (itemId: string) => {
+    if (isWeekClosed) {
+      alert(
+        `A Semana ${selectedWeekNumber}/${selectedYear} está fechada e bloqueada para alterações.\n\nPara marcar ou desmarcar tarefas desta semana, reabra o período clicando em "Reabrir Período".`
+      );
+      return;
+    }
+    onToggleWeeklyItem(itemId, selectedWeekNumber, selectedYear);
+  };
+
+  const handleResetChecklist = () => {
+    if (isWeekClosed) {
+      alert(`A Semana ${selectedWeekNumber}/${selectedYear} está fechada e bloqueada. Reabra o período para fazer alterações.`);
+      return;
+    }
+    if (window.confirm(`Deseja resetar todas as tarefas concluídas da Semana ${selectedWeekNumber}/${selectedYear}?`)) {
+      onResetWeeklyChecklist(selectedWeekNumber, selectedYear);
+    }
+  };
+
+  const handleReopenPeriod = () => {
+    if (window.confirm(`Deseja reabrir a Semana ${selectedWeekNumber}/${selectedYear} para permitir alteração e validação de tarefas?`)) {
+      onReopenWeeklyClosure?.(selectedYear, selectedWeekNumber);
+    }
+  };
+
+  const handleLockPeriod = () => {
+    if (window.confirm(`Deseja fechar e bloquear a Semana ${selectedWeekNumber}/${selectedYear}? Novas alterações de tarefas serão impedidas.`)) {
+      onLockWeeklyClosure?.(selectedYear, selectedWeekNumber);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -308,17 +373,39 @@ export const WeeklyScheduleView: React.FC<WeeklyScheduleViewProps> = ({
 
       {/* Existing Closure Status Banner for the Selected Week */}
       {existingClosureForSelectedWeek && (
-        <div className="p-4 sm:p-5 rounded-2xl bg-[#0f1d16] border border-emerald-800/60 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-md">
+        <div
+          className={`p-4 sm:p-5 rounded-2xl border flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-md transition-all ${
+            isWeekClosed
+              ? 'bg-[#0f1d16] border-emerald-800/60'
+              : 'bg-[#1a170f] border-amber-800/60'
+          }`}
+        >
           <div className="flex items-start gap-3.5">
-            <div className="p-2.5 bg-emerald-950 border border-emerald-700/60 text-emerald-400 rounded-xl mt-0.5">
-              <CheckCircle2 className="w-5 h-5" />
+            <div
+              className={`p-2.5 border rounded-xl mt-0.5 ${
+                isWeekClosed
+                  ? 'bg-emerald-950 border-emerald-700/60 text-emerald-400'
+                  : 'bg-amber-950 border-amber-700/60 text-amber-400'
+              }`}
+            >
+              {isWeekClosed ? <Lock className="w-5 h-5" /> : <Unlock className="w-5 h-5" />}
             </div>
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-sm font-bold text-white">
-                  Fechamento da Semana {selectedWeekInfo.weekNumber}/{selectedYear} Registrado
+                  Semana {selectedWeekInfo.weekNumber}/{selectedYear} —{' '}
+                  {isWeekClosed ? 'Período Fechado & Bloqueado' : 'Fechamento em Aberto'}
                 </span>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-emerald-950 text-emerald-300 border border-emerald-800/60 font-semibold">
+                <span
+                  className={`text-[10px] font-mono px-2 py-0.5 rounded-md font-semibold ${
+                    isWeekClosed
+                      ? 'bg-emerald-950 text-emerald-300 border border-emerald-800/60'
+                      : 'bg-amber-950 text-amber-300 border border-amber-800/60'
+                  }`}
+                >
+                  {isWeekClosed ? '🔒 FECHADA' : '📝 EM ANDAMENTO'}
+                </span>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-zinc-900 text-zinc-300 border border-zinc-700">
                   {existingClosureForSelectedWeek.completedTasksCount}/{existingClosureForSelectedWeek.totalTasksCount} Tarefas (
                   {Math.round(
                     (existingClosureForSelectedWeek.completedTasksCount /
@@ -327,28 +414,54 @@ export const WeeklyScheduleView: React.FC<WeeklyScheduleViewProps> = ({
                   )}
                   %)
                 </span>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-zinc-900 text-zinc-300 border border-zinc-700">
-                  {new Date(existingClosureForSelectedWeek.closedAt).toLocaleString('pt-BR')}
-                </span>
               </div>
-              <p className="text-xs text-emerald-200/90 mt-1">
+              <p className="text-xs text-zinc-300 mt-1">
                 Responsável pelo registro: <strong className="text-white">{existingClosureForSelectedWeek.closedBy}</strong>
+                {isWeekClosed && (
+                  <span className="ml-2 text-emerald-300/80 font-medium">
+                    (Tarefas protegidas contra alterações acidentais)
+                  </span>
+                )}
               </p>
               {existingClosureForSelectedWeek.summaryNotes && (
-                <p className="text-xs text-zinc-300 mt-1 bg-[#0b1410] p-2 rounded-lg border border-emerald-950 line-clamp-2">
+                <p className="text-xs text-zinc-300 mt-1 bg-[#101010] p-2 rounded-lg border border-zinc-800 line-clamp-2">
                   &ldquo;{existingClosureForSelectedWeek.summaryNotes}&rdquo;
                 </p>
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
+          <div className="flex flex-wrap items-center gap-2 shrink-0 self-end md:self-center">
+            {isWeekClosed ? (
+              onReopenWeeklyClosure && (
+                <button
+                  onClick={handleReopenPeriod}
+                  className="px-3.5 py-2 text-xs font-semibold bg-amber-950/80 hover:bg-amber-900 text-amber-200 border border-amber-700/70 rounded-xl transition-all shadow-xs flex items-center gap-1.5"
+                  title="Reabrir período para permitir marcar/desmarcar tarefas desta semana"
+                >
+                  <Unlock className="w-3.5 h-3.5" />
+                  <span>Reabrir Período</span>
+                </button>
+              )
+            ) : (
+              onLockWeeklyClosure && (
+                <button
+                  onClick={handleLockPeriod}
+                  className="px-3.5 py-2 text-xs font-semibold bg-emerald-950/80 hover:bg-emerald-900 text-emerald-200 border border-emerald-700/70 rounded-xl transition-all shadow-xs flex items-center gap-1.5"
+                  title="Bloquear período contra alterações"
+                >
+                  <Lock className="w-3.5 h-3.5" />
+                  <span>Fechar & Bloquear</span>
+                </button>
+              )
+            )}
+
             {onNavigateToClosures && (
               <button
                 onClick={onNavigateToClosures}
-                className="px-3.5 py-2 text-xs font-semibold bg-emerald-900/80 hover:bg-emerald-800 text-emerald-100 border border-emerald-700/70 rounded-xl transition-all shadow-xs flex items-center gap-1.5"
+                className="px-3.5 py-2 text-xs font-semibold bg-[#1a1a1a] hover:bg-[#222] text-zinc-200 border border-[#333] rounded-xl transition-all flex items-center gap-1.5"
               >
-                <Layers className="w-3.5 h-3.5" />
-                <span>Ver na Aba Fechamentos</span>
+                <Layers className="w-3.5 h-3.5 text-teal-400" />
+                <span>Histórico</span>
               </button>
             )}
             {onOpenClosureModal && (
@@ -357,7 +470,7 @@ export const WeeklyScheduleView: React.FC<WeeklyScheduleViewProps> = ({
                 className="px-3.5 py-2 text-xs font-semibold bg-[#1a1a1a] hover:bg-[#262626] text-white border border-[#333] rounded-xl transition-all flex items-center gap-1.5"
               >
                 <FileCheck2 className="w-3.5 h-3.5 text-teal-400" />
-                <span>Editar Fechamento</span>
+                <span>Editar Dados</span>
               </button>
             )}
           </div>
@@ -368,26 +481,37 @@ export const WeeklyScheduleView: React.FC<WeeklyScheduleViewProps> = ({
       <div className="bg-[#141414] p-5 sm:p-6 rounded-2xl border border-[#222] shadow-sm">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h3 className="text-lg font-semibold text-white tracking-tight">
-                Fluxo Diário do Ciclo Semanal
+                Tarefas da Semana {selectedWeekInfo.weekNumber}
               </h3>
               <span className="text-xs px-2.5 py-0.5 rounded-full bg-teal-950/40 text-teal-300 border border-teal-900/40 font-mono font-medium">
-                {weeklySchedules.length} Tarefas Cadastradas
+                {effectiveCompletedIds.length} de {weeklySchedules.length} Concluídas nesta semana
               </span>
+              {isWeekClosed && (
+                <span className="text-xs px-2 py-0.5 rounded-md bg-emerald-950 text-emerald-300 border border-emerald-800/60 font-semibold flex items-center gap-1">
+                  <Lock className="w-3 h-3" /> Bloqueado
+                </span>
+              )}
             </div>
             <p className="text-xs sm:text-sm text-[#888] mt-1 max-w-3xl">
-              Acompanhe as rotinas específicas de cada dia da semana para garantir que nenhuma aprovação ou pagamento expire.
+              As tarefas e validações são independentes para cada semana do ano. Marque as rotinas executadas para esta semana específica ({selectedWeekInfo.formattedShortRange}).
             </p>
           </div>
 
           <div className="flex items-center gap-2">
             <button
-              onClick={onResetWeeklyChecklist}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-[#aaa] hover:text-white bg-[#1c1c1c] hover:bg-[#242424] border border-[#2a2a2a] rounded-xl transition-colors"
+              onClick={handleResetChecklist}
+              disabled={isWeekClosed}
+              className={`inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium rounded-xl transition-colors border ${
+                isWeekClosed
+                  ? 'opacity-40 cursor-not-allowed bg-[#181818] border-[#222] text-zinc-500'
+                  : 'text-[#aaa] hover:text-white bg-[#1c1c1c] hover:bg-[#242424] border-[#2a2a2a]'
+              }`}
+              title={isWeekClosed ? 'Semana fechada. Reabra o período para resetar.' : 'Resetar tarefas concluídas desta semana'}
             >
               <RotateCcw className="w-3.5 h-3.5" />
-              <span>Resetar Semana</span>
+              <span>Resetar Semana {selectedWeekNumber}</span>
             </button>
 
             <button
@@ -413,7 +537,7 @@ export const WeeklyScheduleView: React.FC<WeeklyScheduleViewProps> = ({
             Semana Completa
           </button>
           {daysList.map(d => {
-            const isToday = d.key === currentDayKey;
+            const isToday = d.key === currentDayKey && selectedWeekInfo.isCurrentWeek;
             const isSelected = filterDay === d.key;
             return (
               <button
@@ -538,8 +662,8 @@ export const WeeklyScheduleView: React.FC<WeeklyScheduleViewProps> = ({
       {/* Visual Timeline / Pipeline Grid */}
       <div className="grid grid-cols-1 gap-4">
         {filteredItems.map(item => {
-          const isDone = completedWeeklyIds.includes(item.id);
-          const isToday = item.dayOfWeek === currentDayKey;
+          const isDone = effectiveCompletedIds.includes(item.id);
+          const isToday = item.dayOfWeek === currentDayKey && selectedWeekInfo.isCurrentWeek;
           const isCritical = item.id === 'weekly-3' || item.id === 'weekly-5';
           const isInlineFormOpen = activeInlineFormId === item.id;
           const steps = item.actionableSteps || [];
@@ -559,11 +683,26 @@ export const WeeklyScheduleView: React.FC<WeeklyScheduleViewProps> = ({
             >
               <div className="flex items-start gap-4">
                 <button
-                  onClick={() => onToggleWeeklyItem(item.id)}
-                  className="mt-0.5 text-[#666] hover:text-teal-400 shrink-0"
+                  onClick={() => handleToggleTask(item.id)}
+                  className={`mt-0.5 shrink-0 transition-colors ${
+                    isWeekClosed
+                      ? 'cursor-not-allowed text-zinc-600'
+                      : 'text-[#666] hover:text-teal-400 cursor-pointer'
+                  }`}
+                  title={
+                    isWeekClosed
+                      ? `Semana ${selectedWeekNumber} está fechada. Reabra o período para alterar.`
+                      : isDone
+                      ? 'Desmarcar tarefa'
+                      : 'Marcar tarefa como concluída nesta semana'
+                  }
                 >
                   {isDone ? (
                     <CheckCircle2 className="w-6 h-6 text-teal-400 fill-teal-950/40" />
+                  ) : isWeekClosed ? (
+                    <div className="w-6 h-6 rounded-full border border-zinc-700 flex items-center justify-center bg-[#181818] text-zinc-500">
+                      <Lock className="w-3.5 h-3.5" />
+                    </div>
                   ) : (
                     <Circle className="w-6 h-6 hover:stroke-teal-400" />
                   )}

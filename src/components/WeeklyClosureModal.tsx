@@ -62,6 +62,9 @@ export const WeeklyClosureModal: React.FC<WeeklyClosureModalProps> = ({
   const [criticalRulesChecked, setCriticalRulesChecked] = useState(
     existingClosure?.criticalRulesChecked ?? true
   );
+  const [closureStatus, setClosureStatus] = useState<'closed' | 'in_progress' | 'audited'>(
+    existingClosure?.status || 'closed'
+  );
 
   // Sync state whenever modal opens or active week/closure changes
   useEffect(() => {
@@ -73,6 +76,7 @@ export const WeeklyClosureModal: React.FC<WeeklyClosureModalProps> = ({
       );
       setPendingItemsNotes(existingClosure?.pendingItemsNotes || '');
       setCriticalRulesChecked(existingClosure?.criticalRulesChecked ?? true);
+      setClosureStatus(existingClosure?.status || 'closed');
     }
   }, [isOpen, existingClosure, activeWeekInfo.weekNumber, activeWeekInfo.year, currentUser?.name]);
 
@@ -122,7 +126,7 @@ export const WeeklyClosureModal: React.FC<WeeklyClosureModalProps> = ({
       completedTaskIds: completedWeeklyIds || [],
       tasksSnapshot,
       customNotesSnapshot,
-      status: (completedTasks === totalTasks ? 'closed' : 'in_progress') as 'closed' | 'in_progress',
+      status: closureStatus,
     };
 
     if (onSaveClosure) {
@@ -265,6 +269,65 @@ export const WeeklyClosureModal: React.FC<WeeklyClosureModalProps> = ({
               placeholder="Ex: Aguardando NF corrigida de fornecedor X; Boleto Y reagendado para a próxima quarta-feira..."
               className="w-full px-3.5 py-2.5 text-xs sm:text-sm bg-[#1a1a1a] border border-[#2e2e2e] rounded-xl text-white placeholder-zinc-500 focus:outline-none focus:border-teal-500 leading-relaxed transition-all"
             />
+          </div>
+
+          {/* Status Selection (Closed / In Progress) */}
+          <div className="space-y-2">
+            <label className="block text-xs font-medium text-zinc-300 flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-teal-400" />
+              <span>Status do Período</span>
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label
+                className={`p-3 rounded-xl border cursor-pointer transition-all flex items-start gap-3 select-none ${
+                  closureStatus === 'closed'
+                    ? 'bg-emerald-950/40 border-emerald-600/70 text-white shadow-xs'
+                    : 'bg-[#181818] border-[#2c2c2c] text-zinc-400 hover:border-[#3a3a3a]'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="closureStatus"
+                  value="closed"
+                  checked={closureStatus === 'closed'}
+                  onChange={() => setClosureStatus('closed')}
+                  className="mt-0.5 text-emerald-500 bg-zinc-900 border-zinc-700"
+                />
+                <div className="text-xs">
+                  <div className="font-semibold text-emerald-300 flex items-center gap-1">
+                    <span>🔒 Fechada & Bloqueada</span>
+                  </div>
+                  <p className="text-[11px] text-zinc-400 mt-0.5">
+                    Período encerrado. Bloqueia marcação/desmarcação de tarefas da semana até que seja reaberto.
+                  </p>
+                </div>
+              </label>
+
+              <label
+                className={`p-3 rounded-xl border cursor-pointer transition-all flex items-start gap-3 select-none ${
+                  closureStatus === 'in_progress'
+                    ? 'bg-amber-950/40 border-amber-600/70 text-white shadow-xs'
+                    : 'bg-[#181818] border-[#2c2c2c] text-zinc-400 hover:border-[#3a3a3a]'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="closureStatus"
+                  value="in_progress"
+                  checked={closureStatus === 'in_progress'}
+                  onChange={() => setClosureStatus('in_progress')}
+                  className="mt-0.5 text-amber-500 bg-zinc-900 border-zinc-700"
+                />
+                <div className="text-xs">
+                  <div className="font-semibold text-amber-300 flex items-center gap-1">
+                    <span>📝 Em Andamento (Aberto)</span>
+                  </div>
+                  <p className="text-[11px] text-zinc-400 mt-0.5">
+                    Permite continuar marcando ou alterando as tarefas semanais livremente.
+                  </p>
+                </div>
+              </label>
+            </div>
           </div>
 
           {/* Action Buttons */}

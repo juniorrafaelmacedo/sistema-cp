@@ -412,6 +412,7 @@ export const INITIAL_STATE: FinancialAssistantState = {
   weeklyClosures: [],
   completedDailyIds: [],
   completedWeeklyIds: [],
+  completedWeeklyByWeek: {},
   completedMonthlyIds: [],
   lastCompletedDate: new Date().toISOString().split('T')[0],
 };

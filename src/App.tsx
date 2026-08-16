@@ -28,6 +28,9 @@ export default function App() {
     currentDayOfMonth,
     toggleDailyItem,
     toggleWeeklyItem,
+    getCompletedWeeklyIds,
+    reopenWeeklyClosure,
+    lockWeeklyClosure,
     toggleMonthlyItem,
     resetDailyChecklist,
     resetWeeklyChecklist,
@@ -430,6 +433,7 @@ export default function App() {
               <WeeklyScheduleView
                 weeklySchedules={state.weeklySchedules}
                 completedWeeklyIds={state.completedWeeklyIds}
+                completedWeeklyByWeek={state.completedWeeklyByWeek}
                 currentDayKey={currentDayKey}
                 weeklyClosures={state.weeklyClosures || []}
                 onToggleWeeklyItem={toggleWeeklyItem}
@@ -444,6 +448,14 @@ export default function App() {
                   setIsClosureModalOpen(true);
                 }}
                 onNavigateToClosures={() => setActiveTab('fechamento')}
+                onReopenWeeklyClosure={(year, weekNum) => {
+                  reopenWeeklyClosure(year, weekNum);
+                  showToast(`Semana ${weekNum}/${year} Reaberta!`, 'Agora você pode marcar e desmarcar tarefas desta semana normalmente.');
+                }}
+                onLockWeeklyClosure={(year, weekNum) => {
+                  lockWeeklyClosure(year, weekNum);
+                  showToast(`Semana ${weekNum}/${year} Bloqueada!`, 'O período foi fechado e as tarefas estão protegidas contra alterações.');
+                }}
               />
             )}
 
@@ -452,6 +464,7 @@ export default function App() {
                 weeklyClosures={state.weeklyClosures || []}
                 weeklySchedules={state.weeklySchedules}
                 completedWeeklyIds={state.completedWeeklyIds}
+                completedWeeklyByWeek={state.completedWeeklyByWeek}
                 customNotes={state.customNotes || []}
                 currentUser={currentUser}
                 onSaveClosure={handleSaveClosureFromModal}
@@ -464,6 +477,14 @@ export default function App() {
                   showToast('Fechamento Excluído', 'O registro foi removido com sucesso.');
                 }}
                 onNavigateToSchedule={() => setActiveTab('semanal')}
+                onReopenClosure={(year, weekNum) => {
+                  reopenWeeklyClosure(year, weekNum);
+                  showToast(`Semana ${weekNum}/${year} Reaberta!`, 'Período liberado para marcação de tarefas.');
+                }}
+                onLockClosure={(year, weekNum) => {
+                  lockWeeklyClosure(year, weekNum);
+                  showToast(`Semana ${weekNum}/${year} Bloqueada!`, 'Período fechado com segurança.');
+                }}
               />
             )}
 
@@ -542,7 +563,7 @@ export default function App() {
         onClose={() => setIsClosureModalOpen(false)}
         selectedWeekInfo={closureWeekInfo}
         weeklySchedules={state.weeklySchedules}
-        completedWeeklyIds={state.completedWeeklyIds}
+        completedWeeklyIds={getCompletedWeeklyIds(closureWeekInfo.year, closureModalWeekNumber)}
         customNotes={state.customNotes || []}
         existingClosure={existingClosureForModal}
         currentUser={currentUser}

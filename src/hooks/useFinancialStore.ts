@@ -13,6 +13,7 @@ import {
   DayOfWeekKey,
 } from '../types';
 import { INITIAL_STATE } from '../data/initialData';
+import { getISOWeekNumber } from '../utils/weekUtils';
 import { db, isFirebaseConfigured, initFirebaseAuth } from '../lib/firebase';
 import {
   doc,
@@ -61,6 +62,7 @@ export function useFinancialStore() {
           folderPaths: parsed.folderPaths?.length ? parsed.folderPaths : INITIAL_STATE.folderPaths,
           expenseTypes: parsed.expenseTypes?.length ? parsed.expenseTypes : INITIAL_STATE.expenseTypes,
           weeklyClosures: Array.isArray(parsed.weeklyClosures) ? parsed.weeklyClosures : INITIAL_STATE.weeklyClosures,
+          completedWeeklyByWeek: parsed.completedWeeklyByWeek || {},
         };
       }
     } catch (e) {
@@ -86,6 +88,7 @@ export function useFinancialStore() {
         expenseTypes: stateToSync.expenseTypes || [],
         completedDailyIds: stateToSync.completedDailyIds || [],
         completedWeeklyIds: stateToSync.completedWeeklyIds || [],
+        completedWeeklyByWeek: stateToSync.completedWeeklyByWeek || {},
         completedMonthlyIds: stateToSync.completedMonthlyIds || [],
         customNotes: stateToSync.customNotes || [],
         weeklyClosures: stateToSync.weeklyClosures || [],
@@ -131,6 +134,7 @@ export function useFinancialStore() {
                   expenseTypes: cloudData.expenseTypes || prev.expenseTypes,
                   completedDailyIds: Array.isArray(cloudData.completedDailyIds) ? cloudData.completedDailyIds : prev.completedDailyIds,
                   completedWeeklyIds: Array.isArray(cloudData.completedWeeklyIds) ? cloudData.completedWeeklyIds : prev.completedWeeklyIds,
+                  completedWeeklyByWeek: cloudData.completedWeeklyByWeek || prev.completedWeeklyByWeek || {},
                   completedMonthlyIds: Array.isArray(cloudData.completedMonthlyIds) ? cloudData.completedMonthlyIds : prev.completedMonthlyIds,
                   customNotes: Array.isArray(cloudData.customNotes) ? cloudData.customNotes : prev.customNotes,
                   weeklyClosures: Array.isArray(cloudData.weeklyClosures)
@@ -264,6 +268,34 @@ export function useFinancialStore() {
     }
   }, [state.lastCompletedDate, todayDateStr]);
 
+  // Helper to get completed tasks for a specific week
+  const getCompletedWeeklyIds = useCallback(
+    (year: number, weekNumber: number): string[] => {
+      const weekKey = `${year}_w${weekNumber}`;
+      if (state.completedWeeklyByWeek && Array.isArray(state.completedWeeklyByWeek[weekKey])) {
+        return state.completedWeeklyByWeek[weekKey];
+      }
+      // Check if there is an existing closure record
+      const closure = (state.weeklyClosures || []).find(
+        c => c.year === year && c.weekNumber === weekNumber
+      );
+      if (closure && Array.isArray(closure.completedTaskIds)) {
+        return closure.completedTaskIds;
+      }
+      // If current week and has completedWeeklyIds
+      const currentISO = getISOWeekNumber(new Date());
+      if (
+        year === currentISO.year &&
+        weekNumber === currentISO.weekNumber &&
+        Array.isArray(state.completedWeeklyIds)
+      ) {
+        return state.completedWeeklyIds;
+      }
+      return [];
+    },
+    [state.completedWeeklyByWeek, state.weeklyClosures, state.completedWeeklyIds]
+  );
+
   // Actions for checklists
   const toggleDailyItem = useCallback((id: string) => {
     setState(prev => {
@@ -277,17 +309,96 @@ export function useFinancialStore() {
     });
   }, []);
 
-  const toggleWeeklyItem = useCallback((id: string) => {
-    setState(prev => {
-      const exists = prev.completedWeeklyIds.includes(id);
-      return {
-        ...prev,
-        completedWeeklyIds: exists
-          ? prev.completedWeeklyIds.filter(i => i !== id)
-          : [...prev.completedWeeklyIds, id],
-      };
-    });
-  }, []);
+  const toggleWeeklyItem = useCallback(
+    (id: string, weekNumber?: number, year?: number): { success: boolean; isClosed?: boolean; reason?: string } => {
+      const currentISO = getISOWeekNumber(new Date());
+      const targetYear = year ?? currentISO.year;
+      const targetWeek = weekNumber ?? currentISO.weekNumber;
+      const weekKey = `${targetYear}_w${targetWeek}`;
+
+      let result: { success: boolean; isClosed?: boolean; reason?: string } = { success: true };
+
+      setState(prev => {
+        // Check if week is locked / closed
+        const closure = (prev.weeklyClosures || []).find(
+          c => c.year === targetYear && c.weekNumber === targetWeek
+        );
+        if (closure && closure.status === 'closed') {
+          result = {
+            success: false,
+            isClosed: true,
+            reason: `A Semana ${targetWeek}/${targetYear} já foi fechada. Para alterar tarefas, reabra o período.`,
+          };
+          return prev;
+        }
+
+        const byWeek = { ...(prev.completedWeeklyByWeek || {}) };
+        let currentWeekList = byWeek[weekKey];
+
+        if (!currentWeekList) {
+          if (closure && Array.isArray(closure.completedTaskIds)) {
+            currentWeekList = [...closure.completedTaskIds];
+          } else if (
+            targetYear === currentISO.year &&
+            targetWeek === currentISO.weekNumber &&
+            Array.isArray(prev.completedWeeklyIds)
+          ) {
+            currentWeekList = [...prev.completedWeeklyIds];
+          } else {
+            currentWeekList = [];
+          }
+        }
+
+        const exists = currentWeekList.includes(id);
+        const updatedList = exists
+          ? currentWeekList.filter(i => i !== id)
+          : [...currentWeekList, id];
+
+        byWeek[weekKey] = updatedList;
+
+        // If an in_progress closure exists for this week, update snapshot & count
+        let updatedClosures = prev.weeklyClosures;
+        if (closure) {
+          updatedClosures = prev.weeklyClosures.map(c => {
+            if (c.id === closure.id) {
+              const newTasksSnapshot =
+                c.tasksSnapshot?.map(t => ({
+                  ...t,
+                  completed: updatedList.includes(t.id),
+                })) || [];
+              return {
+                ...c,
+                completedTaskIds: updatedList,
+                completedTasksCount: updatedList.length,
+                tasksSnapshot: newTasksSnapshot,
+              };
+            }
+            return c;
+          });
+        }
+
+        const nextState: FinancialAssistantState = {
+          ...prev,
+          completedWeeklyByWeek: byWeek,
+          completedWeeklyIds:
+            targetYear === currentISO.year && targetWeek === currentISO.weekNumber
+              ? updatedList
+              : prev.completedWeeklyIds,
+          weeklyClosures: updatedClosures,
+        };
+
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
+        } catch (e) {
+          console.error(e);
+        }
+        return nextState;
+      });
+
+      return result;
+    },
+    []
+  );
 
   const toggleMonthlyItem = useCallback((id: string) => {
     setState(prev => {
@@ -308,11 +419,38 @@ export function useFinancialStore() {
     }));
   }, []);
 
-  const resetWeeklyChecklist = useCallback(() => {
-    setState(prev => ({
-      ...prev,
-      completedWeeklyIds: [],
-    }));
+  const resetWeeklyChecklist = useCallback((weekNumber?: number, year?: number) => {
+    const currentISO = getISOWeekNumber(new Date());
+    const targetYear = year ?? currentISO.year;
+    const targetWeek = weekNumber ?? currentISO.weekNumber;
+    const weekKey = `${targetYear}_w${targetWeek}`;
+
+    setState(prev => {
+      const closure = (prev.weeklyClosures || []).find(
+        c => c.year === targetYear && c.weekNumber === targetWeek
+      );
+      if (closure && closure.status === 'closed') {
+        return prev;
+      }
+
+      const byWeek = { ...(prev.completedWeeklyByWeek || {}) };
+      byWeek[weekKey] = [];
+
+      const nextState = {
+        ...prev,
+        completedWeeklyByWeek: byWeek,
+        completedWeeklyIds:
+          targetYear === currentISO.year && targetWeek === currentISO.weekNumber
+            ? []
+            : prev.completedWeeklyIds,
+      };
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
+      } catch (e) {
+        console.error(e);
+      }
+      return nextState;
+    });
   }, []);
 
   const resetMonthlyChecklist = useCallback(() => {
@@ -662,6 +800,7 @@ export function useFinancialStore() {
     (closureData: Omit<WeeklyClosureRecord, 'id' | 'closedAt'>) => {
       const now = new Date().toISOString();
       const docId = `closure_${closureData.year}_w${closureData.weekNumber}`;
+      const weekKey = `${closureData.year}_w${closureData.weekNumber}`;
       const newRecord: WeeklyClosureRecord = {
         ...closureData,
         id: docId,
@@ -675,9 +814,15 @@ export function useFinancialStore() {
           c => !(c.year === closureData.year && c.weekNumber === closureData.weekNumber) && c.id !== docId
         );
         const updatedClosures = [newRecord, ...filtered];
+
+        // Also ensure completedWeeklyByWeek has these task IDs
+        const byWeek = { ...(prev.completedWeeklyByWeek || {}) };
+        byWeek[weekKey] = [...closureData.completedTaskIds];
+
         const nextState = {
           ...prev,
           weeklyClosures: updatedClosures,
+          completedWeeklyByWeek: byWeek,
         };
         try {
           localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
@@ -698,6 +843,103 @@ export function useFinancialStore() {
         return nextState;
       });
       return newRecord;
+    },
+    [syncToCloud]
+  );
+
+  const reopenWeeklyClosure = useCallback(
+    (year: number, weekNumber: number, userName?: string) => {
+      const weekKey = `${year}_w${weekNumber}`;
+      const docId = `closure_${year}_w${weekNumber}`;
+
+      setState(prev => {
+        const existing = (prev.weeklyClosures || []).find(
+          c => c.year === year && c.weekNumber === weekNumber
+        );
+        if (!existing) return prev;
+
+        const updatedClosure: WeeklyClosureRecord = {
+          ...existing,
+          status: 'in_progress',
+          reopenedAt: new Date().toISOString(),
+          reopenedBy: userName || 'Tesouraria',
+        };
+
+        const byWeek = { ...(prev.completedWeeklyByWeek || {}) };
+        if (!byWeek[weekKey] && existing.completedTaskIds) {
+          byWeek[weekKey] = [...existing.completedTaskIds];
+        }
+
+        const updatedClosures = prev.weeklyClosures.map(c =>
+          c.id === existing.id ? updatedClosure : c
+        );
+
+        const nextState = {
+          ...prev,
+          weeklyClosures: updatedClosures,
+          completedWeeklyByWeek: byWeek,
+        };
+
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
+        } catch (e) {
+          console.error(e);
+        }
+
+        if (isFirebaseConfigured) {
+          const closureDocRef = doc(db, 'weekly_closures', existing.id || docId);
+          setDoc(closureDocRef, sanitizeForFirestore(updatedClosure), { merge: true }).catch(err => {
+            console.error('Erro ao reabrir semana no Firestore:', err);
+          });
+        }
+
+        syncToCloud(nextState);
+        return nextState;
+      });
+    },
+    [syncToCloud]
+  );
+
+  const lockWeeklyClosure = useCallback(
+    (year: number, weekNumber: number) => {
+      const docId = `closure_${year}_w${weekNumber}`;
+
+      setState(prev => {
+        const existing = (prev.weeklyClosures || []).find(
+          c => c.year === year && c.weekNumber === weekNumber
+        );
+        if (!existing) return prev;
+
+        const updatedClosure: WeeklyClosureRecord = {
+          ...existing,
+          status: 'closed',
+        };
+
+        const updatedClosures = prev.weeklyClosures.map(c =>
+          c.id === existing.id ? updatedClosure : c
+        );
+
+        const nextState = {
+          ...prev,
+          weeklyClosures: updatedClosures,
+        };
+
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
+        } catch (e) {
+          console.error(e);
+        }
+
+        if (isFirebaseConfigured) {
+          const closureDocRef = doc(db, 'weekly_closures', existing.id || docId);
+          setDoc(closureDocRef, sanitizeForFirestore(updatedClosure), { merge: true }).catch(err => {
+            console.error('Erro ao fechar semana no Firestore:', err);
+          });
+        }
+
+        syncToCloud(nextState);
+        return nextState;
+      });
     },
     [syncToCloud]
   );
@@ -833,7 +1075,10 @@ export function useFinancialStore() {
     updateExpenseType,
     removeExpenseType,
     resetExpenseTypesToDefault,
+    getCompletedWeeklyIds,
     saveWeeklyClosure,
+    reopenWeeklyClosure,
+    lockWeeklyClosure,
     updateWeeklyClosure,
     deleteWeeklyClosure,
     resetToFactoryDefaults,
