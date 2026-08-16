@@ -86,13 +86,23 @@ export const WeeklyClosureModal: React.FC<WeeklyClosureModalProps> = ({
     e.preventDefault();
 
     const tasksSnapshot = weeklySchedules.map(task => ({
-      id: task.id,
-      title: task.title,
-      dayOfWeek: task.dayOfWeek,
-      dayName: task.dayName,
+      id: task.id || '',
+      title: task.title || '',
+      dayOfWeek: task.dayOfWeek || 'seg',
+      dayName: task.dayName || '',
       completed: completedWeeklyIds.includes(task.id),
-      dueTime: task.dueTime,
-      criticalRule: task.criticalRule,
+      dueTime: task.dueTime || '',
+      criticalRule: task.criticalRule || '',
+    }));
+
+    const customNotesSnapshot: CustomNoteItem[] = (customNotes || []).map(note => ({
+      id: note.id || '',
+      title: note.title || '',
+      rawText: note.rawText || note.title || '',
+      category: note.category || 'rotina_diaria',
+      createdAt: note.createdAt || new Date().toISOString(),
+      tags: Array.isArray(note.tags) ? note.tags : [],
+      isProcessed: Boolean(note.isProcessed),
     }));
 
     const closurePayload = {
@@ -103,15 +113,15 @@ export const WeeklyClosureModal: React.FC<WeeklyClosureModalProps> = ({
       endDateFormatted: activeWeekInfo.sundayFormatted,
       wednesdayFormatted: activeWeekInfo.wednesdayFormatted,
       fridayFormatted: activeWeekInfo.fridayFormatted,
-      closedBy: closedBy.trim() || 'Tesouraria',
-      summaryNotes: summaryNotes.trim(),
-      pendingItemsNotes: pendingItemsNotes.trim() || undefined,
-      criticalRulesChecked,
+      closedBy: closedBy.trim() || currentUser?.name || 'Tesouraria',
+      summaryNotes: summaryNotes.trim() || 'Fechamento semanal concluído.',
+      pendingItemsNotes: pendingItemsNotes.trim() || '',
+      criticalRulesChecked: Boolean(criticalRulesChecked),
       totalTasksCount: totalTasks,
       completedTasksCount: completedTasks,
-      completedTaskIds: completedWeeklyIds,
+      completedTaskIds: completedWeeklyIds || [],
       tasksSnapshot,
-      customNotesSnapshot: customNotes,
+      customNotesSnapshot,
       status: (completedTasks === totalTasks ? 'closed' : 'in_progress') as 'closed' | 'in_progress',
     };
 

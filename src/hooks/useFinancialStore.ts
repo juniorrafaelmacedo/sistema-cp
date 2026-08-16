@@ -26,6 +26,17 @@ import {
 const STORAGE_KEY = 'mpp_treasury_financial_assistant_v1';
 const WORKSPACE_DOC_ID = 'shared_main';
 
+function sanitizeForFirestore<T>(data: T): T {
+  return JSON.parse(
+    JSON.stringify(data, (key, value) => {
+      if (value === undefined) {
+        return null;
+      }
+      return value;
+    })
+  );
+}
+
 export function useFinancialStore() {
   const [syncStatus, setSyncStatus] = useState<'connected' | 'syncing' | 'offline'>(
     isFirebaseConfigured ? 'connected' : 'offline'
@@ -64,7 +75,7 @@ export function useFinancialStore() {
     try {
       setSyncStatus('syncing');
       const workspaceRef = doc(db, 'treasury_workspace', WORKSPACE_DOC_ID);
-      const payload = {
+      const payload = sanitizeForFirestore({
         dailyRoutines: stateToSync.dailyRoutines || [],
         weeklySchedules: stateToSync.weeklySchedules || [],
         monthlyDues: stateToSync.monthlyDues || [],
@@ -80,7 +91,7 @@ export function useFinancialStore() {
         weeklyClosures: stateToSync.weeklyClosures || [],
         lastCompletedDate: stateToSync.lastCompletedDate || new Date().toISOString().split('T')[0],
         lastUpdated: new Date().toISOString(),
-      };
+      });
       await setDoc(workspaceRef, payload, { merge: true });
       setSyncStatus('connected');
       setLastSyncTime(new Date().toLocaleTimeString('pt-BR'));
@@ -90,17 +101,18 @@ export function useFinancialStore() {
     }
   }, []);
 
-  // Real-time Firestore Listener
+  // Real-time Firestore Listeners (Workspace and Dedicated Collections)
   useEffect(() => {
     if (!isFirebaseConfigured) return;
 
-    let unsubscribe: (() => void) | undefined;
+    let unsubWorkspace: (() => void) | undefined;
+    let unsubClosures: (() => void) | undefined;
 
     initFirebaseAuth()
       .then(() => {
+        // 1. Workspace Listener
         const workspaceRef = doc(db, 'treasury_workspace', WORKSPACE_DOC_ID);
-
-        unsubscribe = onSnapshot(
+        unsubWorkspace = onSnapshot(
           workspaceRef,
           (docSnap) => {
             if (docSnap.exists()) {
@@ -144,8 +156,51 @@ export function useFinancialStore() {
             }
           },
           (error) => {
-            console.error('Erro no listener do Firestore:', error);
+            console.error('Erro no listener do Firestore (workspace):', error);
             setSyncStatus('offline');
+          }
+        );
+
+        // 2. Weekly Closures Collection Listener
+        const closuresColRef = collection(db, 'weekly_closures');
+        unsubClosures = onSnapshot(
+          closuresColRef,
+          (querySnap) => {
+            if (!querySnap.empty) {
+              const remoteClosures: WeeklyClosureRecord[] = [];
+              querySnap.forEach(docSnap => {
+                if (docSnap.exists()) {
+                  remoteClosures.push(docSnap.data() as WeeklyClosureRecord);
+                }
+              });
+
+              if (remoteClosures.length > 0) {
+                setState(prev => {
+                  const currentMap = new Map<string, WeeklyClosureRecord>();
+                  (prev.weeklyClosures || []).forEach(c => {
+                    const key = `${c.year}_w${c.weekNumber}`;
+                    currentMap.set(key, c);
+                  });
+                  remoteClosures.forEach(c => {
+                    const key = `${c.year}_w${c.weekNumber}`;
+                    currentMap.set(key, c);
+                  });
+                  const merged = Array.from(currentMap.values()).sort(
+                    (a, b) => b.weekNumber - a.weekNumber
+                  );
+                  const nextState = { ...prev, weeklyClosures: merged };
+                  try {
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
+                  } catch (e) {
+                    console.error(e);
+                  }
+                  return nextState;
+                });
+              }
+            }
+          },
+          (error) => {
+            console.warn('Listener de weekly_closures info:', error.message);
           }
         );
       })
@@ -154,7 +209,8 @@ export function useFinancialStore() {
       });
 
     return () => {
-      if (unsubscribe) unsubscribe();
+      if (unsubWorkspace) unsubWorkspace();
+      if (unsubClosures) unsubClosures();
     };
   }, [syncToCloud]);
 
@@ -605,9 +661,10 @@ export function useFinancialStore() {
   const saveWeeklyClosure = useCallback(
     (closureData: Omit<WeeklyClosureRecord, 'id' | 'closedAt'>) => {
       const now = new Date().toISOString();
+      const docId = `closure_${closureData.year}_w${closureData.weekNumber}`;
       const newRecord: WeeklyClosureRecord = {
         ...closureData,
-        id: `closure-${closureData.year}-w${closureData.weekNumber}-${Date.now()}`,
+        id: docId,
         closedAt: now,
       };
 
@@ -615,7 +672,7 @@ export function useFinancialStore() {
         const existingList = prev.weeklyClosures || [];
         // Replace existing closure for the same year and weekNumber or prepend new
         const filtered = existingList.filter(
-          c => !(c.year === closureData.year && c.weekNumber === closureData.weekNumber)
+          c => !(c.year === closureData.year && c.weekNumber === closureData.weekNumber) && c.id !== docId
         );
         const updatedClosures = [newRecord, ...filtered];
         const nextState = {
@@ -627,7 +684,16 @@ export function useFinancialStore() {
         } catch (e) {
           console.error('Falha ao salvar fechamento no localStorage:', e);
         }
-        // Immediate sync to Firestore
+
+        // Direct write to dedicated weekly_closures collection
+        if (isFirebaseConfigured) {
+          const closureDocRef = doc(db, 'weekly_closures', docId);
+          setDoc(closureDocRef, sanitizeForFirestore(newRecord), { merge: true }).catch(err => {
+            console.error('Erro ao salvar em weekly_closures collection:', err);
+          });
+        }
+
+        // Sync to main workspace document
         syncToCloud(nextState);
         return nextState;
       });
@@ -650,6 +716,14 @@ export function useFinancialStore() {
       } catch (e) {
         console.error('Falha ao atualizar fechamento no localStorage:', e);
       }
+
+      if (isFirebaseConfigured) {
+        const closureDocRef = doc(db, 'weekly_closures', id);
+        setDoc(closureDocRef, sanitizeForFirestore(updated), { merge: true }).catch(err => {
+          console.error('Erro ao atualizar em weekly_closures collection:', err);
+        });
+      }
+
       syncToCloud(nextState);
       return nextState;
     });
@@ -667,6 +741,14 @@ export function useFinancialStore() {
       } catch (e) {
         console.error('Falha ao excluir fechamento no localStorage:', e);
       }
+
+      if (isFirebaseConfigured) {
+        const closureDocRef = doc(db, 'weekly_closures', id);
+        deleteDoc(closureDocRef).catch(err => {
+          console.error('Erro ao excluir em weekly_closures collection:', err);
+        });
+      }
+
       syncToCloud(nextState);
       return nextState;
     });

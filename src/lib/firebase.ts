@@ -15,22 +15,27 @@ export const db =
 // Initialize Firebase Auth
 export const auth = getAuth(app);
 
-// Automatically sign in anonymously to satisfy security rules and keep session persistent
+// Initialize Firebase Auth gracefully (direct Firestore is active via firestore.rules)
 export function initFirebaseAuth(): Promise<User | null> {
   return new Promise((resolve) => {
-    onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        resolve(user);
-      } else {
-        try {
-          const userCredential = await signInAnonymously(auth);
-          resolve(userCredential.user);
-        } catch (error) {
-          console.warn('Anonymous auth not enabled or failed, proceeding with direct Firestore:', error);
-          resolve(null);
+    try {
+      const unsubscribe = onAuthStateChanged(auth, async (user) => {
+        unsubscribe();
+        if (user) {
+          resolve(user);
+        } else {
+          try {
+            const userCredential = await signInAnonymously(auth);
+            resolve(userCredential.user);
+          } catch {
+            // Direct Firestore access is enabled in firestore.rules
+            resolve(null);
+          }
         }
-      }
-    });
+      });
+    } catch {
+      resolve(null);
+    }
   });
 }
 
