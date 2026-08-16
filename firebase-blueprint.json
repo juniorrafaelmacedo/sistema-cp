@@ -1,0 +1,48 @@
+{
+  "entities": {
+    "weekly_closure": {
+      "title": "WeeklyClosure",
+      "description": "Historical weekly treasury closure records",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "year": { "type": "number" },
+        "weekNumber": { "type": "number" },
+        "periodLabel": { "type": "string" },
+        "closedAt": { "type": "string" },
+        "closedBy": { "type": "string" },
+        "status": { "type": "string" },
+        "completedTasksCount": { "type": "number" },
+        "totalTasksCount": { "type": "number" },
+        "completedTaskIds": { "type": "array", "items": { "type": "string" } },
+        "summaryNotes": { "type": "string" },
+        "pendingIssues": { "type": "string" },
+        "highlights": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["id", "year", "weekNumber", "closedAt", "closedBy"]
+    },
+    "treasury_workspace": {
+      "title": "TreasuryWorkspace",
+      "description": "Shared real-time state for daily tasks, weekly tasks, and custom procedures",
+      "type": "object",
+      "properties": {
+        "completedDailyIds": { "type": "array", "items": { "type": "string" } },
+        "completedWeeklyIds": { "type": "array", "items": { "type": "string" } },
+        "completedMonthlyIds": { "type": "array", "items": { "type": "string" } },
+        "customNotes": { "type": "array", "items": { "type": "object" } },
+        "lastUpdated": { "type": "string" },
+        "lastUpdatedBy": { "type": "string" }
+      }
+    }
+  },
+  "firestore": {
+    "weekly_closures": {
+      "schema": "weekly_closure",
+      "description": "Collection of all archived weekly closures"
+    },
+    "treasury_workspace": {
+      "schema": "treasury_workspace",
+      "description": "Realtime synchronized workspace state"
+    }
+  }
+}

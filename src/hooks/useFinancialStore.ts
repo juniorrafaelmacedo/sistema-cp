@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   FinancialAssistantState,
   DailyRoutineItem,
@@ -13,10 +13,25 @@ import {
   DayOfWeekKey,
 } from '../types';
 import { INITIAL_STATE } from '../data/initialData';
+import { db, isFirebaseConfigured } from '../lib/firebase';
+import {
+  doc,
+  setDoc,
+  getDoc,
+  onSnapshot,
+  collection,
+  deleteDoc,
+} from 'firebase/firestore';
 
 const STORAGE_KEY = 'mpp_treasury_financial_assistant_v1';
+const WORKSPACE_DOC_ID = 'shared_main';
 
 export function useFinancialStore() {
+  const [syncStatus, setSyncStatus] = useState<'connected' | 'syncing' | 'offline'>(
+    isFirebaseConfigured ? 'connected' : 'offline'
+  );
+  const isRemoteUpdateRef = useRef(false);
+
   const [state, setState] = useState<FinancialAssistantState>(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
@@ -25,7 +40,6 @@ export function useFinancialStore() {
         return {
           ...INITIAL_STATE,
           ...parsed,
-          // Ensure all arrays exist in case user has an older version in storage
           dailyRoutines: parsed.dailyRoutines?.length ? parsed.dailyRoutines : INITIAL_STATE.dailyRoutines,
           weeklySchedules: parsed.weeklySchedules?.length ? parsed.weeklySchedules : INITIAL_STATE.weeklySchedules,
           monthlyDues: parsed.monthlyDues?.length ? parsed.monthlyDues : INITIAL_STATE.monthlyDues,
@@ -43,6 +57,91 @@ export function useFinancialStore() {
     return INITIAL_STATE;
   });
 
+  // Helper to sync whole workspace to Firestore
+  const syncToCloud = useCallback(async (stateToSync: FinancialAssistantState) => {
+    if (!isFirebaseConfigured || isRemoteUpdateRef.current) return;
+    try {
+      setSyncStatus('syncing');
+      const workspaceRef = doc(db, 'treasury_workspace', WORKSPACE_DOC_ID);
+      await setDoc(workspaceRef, {
+        dailyRoutines: stateToSync.dailyRoutines || [],
+        weeklySchedules: stateToSync.weeklySchedules || [],
+        monthlyDues: stateToSync.monthlyDues || [],
+        specialRules: stateToSync.specialRules || [],
+        contacts: stateToSync.contacts || [],
+        bankAccounts: stateToSync.bankAccounts || [],
+        folderPaths: stateToSync.folderPaths || [],
+        expenseTypes: stateToSync.expenseTypes || [],
+        completedDailyIds: stateToSync.completedDailyIds || [],
+        completedWeeklyIds: stateToSync.completedWeeklyIds || [],
+        completedMonthlyIds: stateToSync.completedMonthlyIds || [],
+        customNotes: stateToSync.customNotes || [],
+        weeklyClosures: stateToSync.weeklyClosures || [],
+        lastUpdated: new Date().toISOString(),
+      }, { merge: true });
+      setSyncStatus('connected');
+    } catch (error) {
+      console.error('Erro ao sincronizar com Firestore:', error);
+      setSyncStatus('connected');
+    }
+  }, []);
+
+  // Real-time Firestore Listener
+  useEffect(() => {
+    if (!isFirebaseConfigured) return;
+
+    const workspaceRef = doc(db, 'treasury_workspace', WORKSPACE_DOC_ID);
+
+    const unsubscribe = onSnapshot(
+      workspaceRef,
+      (docSnap) => {
+        if (docSnap.exists()) {
+          const cloudData = docSnap.data();
+          isRemoteUpdateRef.current = true;
+          setState(prev => {
+            const nextState: FinancialAssistantState = {
+              ...prev,
+              dailyRoutines: cloudData.dailyRoutines || prev.dailyRoutines,
+              weeklySchedules: cloudData.weeklySchedules || prev.weeklySchedules,
+              monthlyDues: cloudData.monthlyDues || prev.monthlyDues,
+              specialRules: cloudData.specialRules || prev.specialRules,
+              contacts: cloudData.contacts || prev.contacts,
+              bankAccounts: cloudData.bankAccounts || prev.bankAccounts,
+              folderPaths: cloudData.folderPaths || prev.folderPaths,
+              expenseTypes: cloudData.expenseTypes || prev.expenseTypes,
+              completedDailyIds: cloudData.completedDailyIds || prev.completedDailyIds,
+              completedWeeklyIds: cloudData.completedWeeklyIds || prev.completedWeeklyIds,
+              completedMonthlyIds: cloudData.completedMonthlyIds || prev.completedMonthlyIds,
+              customNotes: cloudData.customNotes || prev.customNotes,
+              weeklyClosures: Array.isArray(cloudData.weeklyClosures)
+                ? cloudData.weeklyClosures
+                : prev.weeklyClosures,
+            };
+            try {
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
+            } catch (e) {
+              console.error(e);
+            }
+            return nextState;
+          });
+          setTimeout(() => {
+            isRemoteUpdateRef.current = false;
+          }, 300);
+          setSyncStatus('connected');
+        } else {
+          // Document does not exist in Firestore yet -> seed with current state
+          syncToCloud(state);
+        }
+      },
+      (error) => {
+        console.error('Erro no listener do Firestore:', error);
+        setSyncStatus('offline');
+      }
+    );
+
+    return () => unsubscribe();
+  }, [syncToCloud]);
+
   // Save to localStorage whenever state changes
   useEffect(() => {
     try {
@@ -51,6 +150,15 @@ export function useFinancialStore() {
       console.error('Falha ao salvar no localStorage:', e);
     }
   }, [state]);
+
+  // Debounced Auto-sync local changes to Firestore Cloud
+  useEffect(() => {
+    if (!isFirebaseConfigured || isRemoteUpdateRef.current) return;
+    const timer = setTimeout(() => {
+      syncToCloud(state);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [state, syncToCloud]);
 
   // Today's date calculations
   const today = useMemo(() => new Date(), []);
@@ -629,5 +737,7 @@ export function useFinancialStore() {
     resetToFactoryDefaults,
     exportDataJson,
     importDataJson,
+    syncStatus,
+    forceSyncCloud: () => syncToCloud(state),
   };
 }

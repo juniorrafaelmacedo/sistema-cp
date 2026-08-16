@@ -16,6 +16,9 @@ import {
   CalendarDays,
   Languages,
   FileCheck2,
+  Cloud,
+  CloudCheck,
+  RefreshCw,
 } from 'lucide-react';
 import { DayOfWeekKey, UserProfile } from '../types';
 import { getISOWeekNumber, getWeekPeriodInfo } from '../utils/weekUtils';
@@ -36,6 +39,8 @@ interface HeaderProps {
   closureCount?: number;
   currentUser?: UserProfile | null;
   onLogout?: () => void;
+  syncStatus?: 'connected' | 'syncing' | 'offline';
+  onForceSync?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -54,6 +59,8 @@ export const Header: React.FC<HeaderProps> = ({
   closureCount = 0,
   currentUser,
   onLogout,
+  syncStatus = 'connected',
+  onForceSync,
 }) => {
   const [showUserDropdown, setShowUserDropdown] = useState(false);
 
@@ -95,6 +102,34 @@ export const Header: React.FC<HeaderProps> = ({
                   <CalendarDays className="w-3 h-3 text-teal-400" />
                   Semana {currentWeek.weekNumber} / {currentWeek.year}
                 </span>
+
+                {/* Cloud Sync Status Badge */}
+                <button
+                  onClick={onForceSync}
+                  className={`text-[11px] px-2 py-0.5 rounded-full border flex items-center gap-1.5 transition-colors ${
+                    syncStatus === 'syncing'
+                      ? 'bg-amber-950/60 text-amber-300 border-amber-800/60'
+                      : syncStatus === 'connected'
+                      ? 'bg-emerald-950/70 text-emerald-300 border-emerald-800/60 hover:bg-emerald-900/80'
+                      : 'bg-zinc-900 text-zinc-400 border-zinc-700'
+                  }`}
+                  title="Sincronização em tempo real via Firebase Firestore (clique para sincronizar agora)"
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full ${
+                    syncStatus === 'syncing'
+                      ? 'bg-amber-400 animate-spin'
+                      : syncStatus === 'connected'
+                      ? 'bg-emerald-400 animate-pulse'
+                      : 'bg-zinc-500'
+                  }`} />
+                  <span>
+                    {syncStatus === 'syncing'
+                      ? 'Sincronizando Nuvem...'
+                      : syncStatus === 'connected'
+                      ? 'Nuvem Conectada (Firebase)'
+                      : 'Offline'}
+                  </span>
+                </button>
               </div>
               <p className="text-xs text-[#888] flex items-center gap-1.5 mt-0.5">
                 <Clock className="w-3.5 h-3.5 text-[#666]" />

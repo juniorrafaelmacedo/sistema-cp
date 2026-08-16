@@ -70,6 +70,8 @@ export default function App() {
     resetToFactoryDefaults,
     exportDataJson,
     importDataJson,
+    syncStatus,
+    forceSyncCloud,
   } = useFinancialStore();
 
   const [activeTab, setActiveTab] = useState<string>('hoje');
@@ -266,6 +268,11 @@ export default function App() {
         closureCount={(state.weeklyClosures || []).length}
         currentUser={currentUser}
         onLogout={handleLogout}
+        syncStatus={syncStatus}
+        onForceSync={() => {
+          forceSyncCloud();
+          showToast('Nuvem Sincronizada', 'Dados do financeiro sincronizados com o Firebase!');
+        }}
       />
 
       {/* Main Container */}

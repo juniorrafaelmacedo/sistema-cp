@@ -1,0 +1,18 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Treasury workspace data accessible to team members
+    match /treasury_workspace/{docId} {
+      allow read, write: if true;
+    }
+    match /weekly_closures/{closureId} {
+      allow read, write: if true;
+    }
+    match /custom_notes/{noteId} {
+      allow read, write: if true;
+    }
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}
