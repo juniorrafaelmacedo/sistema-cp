@@ -127,17 +127,35 @@ export default function App() {
   // Authentication State
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
     try {
-      const saved = localStorage.getItem(USER_STORAGE_KEY);
-      return saved ? JSON.parse(saved) : null;
+      // Check session storage first (for active browser tab/session)
+      const sessionSaved = sessionStorage.getItem(USER_STORAGE_KEY);
+      if (sessionSaved) {
+        return JSON.parse(sessionSaved);
+      }
+
+      // Check persistent storage only if user explicitly enabled "Lembrar acesso"
+      const isRemembered = localStorage.getItem('treasury_auth_remember') === 'true';
+      if (isRemembered) {
+        const saved = localStorage.getItem(USER_STORAGE_KEY);
+        return saved ? JSON.parse(saved) : null;
+      }
+      return null;
     } catch {
       return null;
     }
   });
 
-  const handleLoginSuccess = (user: UserProfile) => {
+  const handleLoginSuccess = (user: UserProfile, remember: boolean) => {
     setCurrentUser(user);
     try {
-      localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user));
+      sessionStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user));
+      if (remember) {
+        localStorage.setItem('treasury_auth_remember', 'true');
+        localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user));
+      } else {
+        localStorage.removeItem('treasury_auth_remember');
+        localStorage.removeItem(USER_STORAGE_KEY);
+      }
     } catch (e) {
       console.error('Failed to save user in storage', e);
     }
@@ -146,7 +164,9 @@ export default function App() {
   const handleLogout = () => {
     setCurrentUser(null);
     try {
+      sessionStorage.removeItem(USER_STORAGE_KEY);
       localStorage.removeItem(USER_STORAGE_KEY);
+      localStorage.removeItem('treasury_auth_remember');
     } catch (e) {
       console.error('Failed to clear user from storage', e);
     }

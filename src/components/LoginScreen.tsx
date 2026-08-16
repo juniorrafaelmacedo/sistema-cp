@@ -9,20 +9,44 @@ import {
   Sparkles,
   CheckCircle2,
   Building,
+  Trash2,
+  Info,
 } from 'lucide-react';
 import { UserProfile } from '../types';
 
 interface LoginScreenProps {
-  onLoginSuccess: (user: UserProfile) => void;
+  onLoginSuccess: (user: UserProfile, remember: boolean) => void;
 }
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
-  const [email, setEmail] = useState('junior.rafael.macedo@gmail.com');
-  const [password, setPassword] = useState('Loki1905@');
+  // Load saved credentials only if the user previously explicitly chose to save them
+  const hasSavedPasswordChoice = localStorage.getItem('treasury_save_password_choice') === 'true';
+  const initialSavedEmail = localStorage.getItem('treasury_saved_email') || 'junior.rafael.macedo@gmail.com';
+  const initialSavedPassword = hasSavedPasswordChoice
+    ? localStorage.getItem('treasury_saved_password') || ''
+    : '';
+
+  const [email, setEmail] = useState(initialSavedEmail);
+  const [password, setPassword] = useState(initialSavedPassword);
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(true);
+  const [rememberPassword, setRememberPassword] = useState(hasSavedPasswordChoice);
   const [isLoading, setIsLoading] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
+  const [credentialsClearedMessage, setCredentialsClearedMessage] = useState<string | null>(null);
+
+  const handleClearSavedCredentials = () => {
+    try {
+      localStorage.removeItem('treasury_saved_password');
+      localStorage.removeItem('treasury_save_password_choice');
+      localStorage.removeItem('treasury_auth_remember');
+      setPassword('');
+      setRememberPassword(false);
+      setCredentialsClearedMessage('Senha salva removida da memória deste navegador com sucesso.');
+      setTimeout(() => setCredentialsClearedMessage(null), 4000);
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,7 +60,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
     }
 
     if (!password.trim()) {
-      setLoginError('Por favor, informe sua senha de acesso.');
+      setLoginError('Por favor, digite sua senha de acesso.');
       return;
     }
 
@@ -53,13 +77,25 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
         department: 'Tesouraria & Contas a Pagar',
       };
 
-      if (rememberMe) {
-        localStorage.setItem('treasury_auth_remember', 'true');
+      try {
+        if (rememberPassword) {
+          localStorage.setItem('treasury_saved_email', trimmedEmail);
+          localStorage.setItem('treasury_saved_password', password);
+          localStorage.setItem('treasury_save_password_choice', 'true');
+          localStorage.setItem('treasury_auth_remember', 'true');
+        } else {
+          localStorage.setItem('treasury_saved_email', trimmedEmail);
+          localStorage.removeItem('treasury_saved_password');
+          localStorage.setItem('treasury_save_password_choice', 'false');
+          localStorage.removeItem('treasury_auth_remember');
+        }
+      } catch (e) {
+        console.error('Erro ao gerenciar persistência de senha:', e);
       }
 
       setIsLoading(false);
-      onLoginSuccess(userToLogin);
-    }, 400);
+      onLoginSuccess(userToLogin, rememberPassword);
+    }, 350);
   };
 
   return (
@@ -97,6 +133,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
             </p>
           </div>
 
+          {credentialsClearedMessage && (
+            <div className="p-3 rounded-xl bg-emerald-950/40 border border-emerald-800/60 text-emerald-300 text-xs flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+              <span>{credentialsClearedMessage}</span>
+            </div>
+          )}
+
           {loginError && (
             <div className="p-3 rounded-xl bg-rose-950/40 border border-rose-900/60 text-rose-200 text-xs flex items-center gap-2">
               <span className="font-semibold">⚠️</span>
@@ -104,7 +147,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4" autoComplete="off">
             <div>
               <label className="block text-xs font-medium text-zinc-300 mb-1.5">
                 E-mail Corporativo
@@ -116,7 +159,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                   required
                   value={email}
                   onChange={e => setEmail(e.target.value)}
-                  placeholder="junior.rafael.macedo@gmail.com"
+                  placeholder="seu.email@empresa.com"
+                  autoComplete="username"
                   className="w-full pl-10 pr-4 py-2.5 text-xs sm:text-sm bg-[#1a1a1a] border border-[#2e2e2e] rounded-xl text-white placeholder-zinc-500 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 transition-all font-mono"
                 />
               </div>
@@ -127,6 +171,17 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                 <label className="block text-xs font-medium text-zinc-300">
                   Senha de Acesso
                 </label>
+                {hasSavedPasswordChoice && (
+                  <button
+                    type="button"
+                    onClick={handleClearSavedCredentials}
+                    className="text-[11px] text-amber-400/90 hover:text-amber-300 flex items-center gap-1 transition-colors"
+                    title="Remover senha da memória do navegador"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    <span>Esquecer senha salva</span>
+                  </button>
+                )}
               </div>
               <div className="relative">
                 <Lock className="w-4 h-4 absolute left-3.5 top-3 text-zinc-400" />
@@ -135,7 +190,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                   required
                   value={password}
                   onChange={e => setPassword(e.target.value)}
-                  placeholder="••••••••••••"
+                  placeholder="Digite sua senha"
+                  autoComplete="current-password"
                   className="w-full pl-10 pr-10 py-2.5 text-xs sm:text-sm bg-[#1a1a1a] border border-[#2e2e2e] rounded-xl text-white placeholder-zinc-500 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 transition-all font-mono"
                 />
                 <button
@@ -149,22 +205,30 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
               </div>
             </div>
 
-            <div className="flex items-center justify-between pt-1">
-              <label className="flex items-center gap-2 cursor-pointer text-xs text-zinc-300 select-none">
+            {/* Checkbox to explicitly choose to save password */}
+            <div className="p-3 rounded-xl bg-[#181818] border border-[#262626] space-y-1.5">
+              <label className="flex items-start gap-2.5 cursor-pointer text-xs text-zinc-200 select-none">
                 <input
                   type="checkbox"
-                  checked={rememberMe}
-                  onChange={e => setRememberMe(e.target.checked)}
-                  className="w-4 h-4 rounded bg-[#1c1c1c] border-[#333] text-teal-600 focus:ring-teal-500 focus:ring-offset-0"
+                  checked={rememberPassword}
+                  onChange={e => setRememberPassword(e.target.checked)}
+                  className="mt-0.5 w-4 h-4 rounded bg-[#121212] border-[#3a3a3a] text-teal-600 focus:ring-teal-500 focus:ring-offset-0 cursor-pointer"
                 />
-                <span>Lembrar meu acesso nesta estação</span>
+                <div>
+                  <span className="font-medium text-zinc-200">
+                    Salvar senha neste navegador
+                  </span>
+                  <p className="text-[11px] text-zinc-400 leading-tight mt-0.5">
+                    Deixe desmarcado para digitar sua senha sempre que acessar o sistema pela internet.
+                  </p>
+                </div>
               </label>
             </div>
 
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full py-3 px-4 rounded-xl bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white font-semibold text-xs sm:text-sm shadow-md transition-all flex items-center justify-center gap-2 mt-2"
+              className="w-full py-3 px-4 rounded-xl bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white font-semibold text-xs sm:text-sm shadow-md transition-all flex items-center justify-center gap-2 mt-2 cursor-pointer"
             >
               {isLoading ? (
                 <>
