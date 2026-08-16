@@ -1,0 +1,6 @@
+{
+  "name": "Assistente de Rotina Financeira & Tesouraria",
+  "description": "Ferramenta automatizada para organização de rotinas diárias, semanais e mensais de contas a pagar, tesouraria, regras de fornecedores e checklists inteligentes.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
