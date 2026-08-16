@@ -13,7 +13,7 @@ import {
   DayOfWeekKey,
 } from '../types';
 import { INITIAL_STATE } from '../data/initialData';
-import { db, isFirebaseConfigured } from '../lib/firebase';
+import { db, isFirebaseConfigured, initFirebaseAuth } from '../lib/firebase';
 import {
   doc,
   setDoc,
@@ -30,6 +30,7 @@ export function useFinancialStore() {
   const [syncStatus, setSyncStatus] = useState<'connected' | 'syncing' | 'offline'>(
     isFirebaseConfigured ? 'connected' : 'offline'
   );
+  const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
   const isRemoteUpdateRef = useRef(false);
 
   const [state, setState] = useState<FinancialAssistantState>(() => {
@@ -63,7 +64,7 @@ export function useFinancialStore() {
     try {
       setSyncStatus('syncing');
       const workspaceRef = doc(db, 'treasury_workspace', WORKSPACE_DOC_ID);
-      await setDoc(workspaceRef, {
+      const payload = {
         dailyRoutines: stateToSync.dailyRoutines || [],
         weeklySchedules: stateToSync.weeklySchedules || [],
         monthlyDues: stateToSync.monthlyDues || [],
@@ -77,12 +78,15 @@ export function useFinancialStore() {
         completedMonthlyIds: stateToSync.completedMonthlyIds || [],
         customNotes: stateToSync.customNotes || [],
         weeklyClosures: stateToSync.weeklyClosures || [],
+        lastCompletedDate: stateToSync.lastCompletedDate || new Date().toISOString().split('T')[0],
         lastUpdated: new Date().toISOString(),
-      }, { merge: true });
+      };
+      await setDoc(workspaceRef, payload, { merge: true });
       setSyncStatus('connected');
+      setLastSyncTime(new Date().toLocaleTimeString('pt-BR'));
     } catch (error) {
       console.error('Erro ao sincronizar com Firestore:', error);
-      setSyncStatus('connected');
+      setSyncStatus('offline');
     }
   }, []);
 
@@ -90,56 +94,68 @@ export function useFinancialStore() {
   useEffect(() => {
     if (!isFirebaseConfigured) return;
 
-    const workspaceRef = doc(db, 'treasury_workspace', WORKSPACE_DOC_ID);
+    let unsubscribe: (() => void) | undefined;
 
-    const unsubscribe = onSnapshot(
-      workspaceRef,
-      (docSnap) => {
-        if (docSnap.exists()) {
-          const cloudData = docSnap.data();
-          isRemoteUpdateRef.current = true;
-          setState(prev => {
-            const nextState: FinancialAssistantState = {
-              ...prev,
-              dailyRoutines: cloudData.dailyRoutines || prev.dailyRoutines,
-              weeklySchedules: cloudData.weeklySchedules || prev.weeklySchedules,
-              monthlyDues: cloudData.monthlyDues || prev.monthlyDues,
-              specialRules: cloudData.specialRules || prev.specialRules,
-              contacts: cloudData.contacts || prev.contacts,
-              bankAccounts: cloudData.bankAccounts || prev.bankAccounts,
-              folderPaths: cloudData.folderPaths || prev.folderPaths,
-              expenseTypes: cloudData.expenseTypes || prev.expenseTypes,
-              completedDailyIds: cloudData.completedDailyIds || prev.completedDailyIds,
-              completedWeeklyIds: cloudData.completedWeeklyIds || prev.completedWeeklyIds,
-              completedMonthlyIds: cloudData.completedMonthlyIds || prev.completedMonthlyIds,
-              customNotes: cloudData.customNotes || prev.customNotes,
-              weeklyClosures: Array.isArray(cloudData.weeklyClosures)
-                ? cloudData.weeklyClosures
-                : prev.weeklyClosures,
-            };
-            try {
-              localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
-            } catch (e) {
-              console.error(e);
+    initFirebaseAuth()
+      .then(() => {
+        const workspaceRef = doc(db, 'treasury_workspace', WORKSPACE_DOC_ID);
+
+        unsubscribe = onSnapshot(
+          workspaceRef,
+          (docSnap) => {
+            if (docSnap.exists()) {
+              const cloudData = docSnap.data();
+              isRemoteUpdateRef.current = true;
+              setState(prev => {
+                const nextState: FinancialAssistantState = {
+                  ...prev,
+                  dailyRoutines: cloudData.dailyRoutines || prev.dailyRoutines,
+                  weeklySchedules: cloudData.weeklySchedules || prev.weeklySchedules,
+                  monthlyDues: cloudData.monthlyDues || prev.monthlyDues,
+                  specialRules: cloudData.specialRules || prev.specialRules,
+                  contacts: cloudData.contacts || prev.contacts,
+                  bankAccounts: cloudData.bankAccounts || prev.bankAccounts,
+                  folderPaths: cloudData.folderPaths || prev.folderPaths,
+                  expenseTypes: cloudData.expenseTypes || prev.expenseTypes,
+                  completedDailyIds: Array.isArray(cloudData.completedDailyIds) ? cloudData.completedDailyIds : prev.completedDailyIds,
+                  completedWeeklyIds: Array.isArray(cloudData.completedWeeklyIds) ? cloudData.completedWeeklyIds : prev.completedWeeklyIds,
+                  completedMonthlyIds: Array.isArray(cloudData.completedMonthlyIds) ? cloudData.completedMonthlyIds : prev.completedMonthlyIds,
+                  customNotes: Array.isArray(cloudData.customNotes) ? cloudData.customNotes : prev.customNotes,
+                  weeklyClosures: Array.isArray(cloudData.weeklyClosures)
+                    ? cloudData.weeklyClosures
+                    : prev.weeklyClosures,
+                  lastCompletedDate: cloudData.lastCompletedDate || prev.lastCompletedDate || new Date().toISOString().split('T')[0],
+                };
+                try {
+                  localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
+                } catch (e) {
+                  console.error(e);
+                }
+                return nextState;
+              });
+              setTimeout(() => {
+                isRemoteUpdateRef.current = false;
+              }, 400);
+              setSyncStatus('connected');
+              setLastSyncTime(new Date().toLocaleTimeString('pt-BR'));
+            } else {
+              // Document does not exist in Firestore yet -> seed with current state
+              syncToCloud(state);
             }
-            return nextState;
-          });
-          setTimeout(() => {
-            isRemoteUpdateRef.current = false;
-          }, 300);
-          setSyncStatus('connected');
-        } else {
-          // Document does not exist in Firestore yet -> seed with current state
-          syncToCloud(state);
-        }
-      },
-      (error) => {
-        console.error('Erro no listener do Firestore:', error);
-        setSyncStatus('offline');
-      }
-    );
+          },
+          (error) => {
+            console.error('Erro no listener do Firestore:', error);
+            setSyncStatus('offline');
+          }
+        );
+      })
+      .catch((err) => {
+        console.error('Erro ao inicializar Firebase Auth:', err);
+      });
 
-    return () => unsubscribe();
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
   }, [syncToCloud]);
 
   // Save to localStorage whenever state changes
@@ -156,7 +172,7 @@ export function useFinancialStore() {
     if (!isFirebaseConfigured || isRemoteUpdateRef.current) return;
     const timer = setTimeout(() => {
       syncToCloud(state);
-    }, 500);
+    }, 400);
     return () => clearTimeout(timer);
   }, [state, syncToCloud]);
 
@@ -181,9 +197,9 @@ export function useFinancialStore() {
 
   const currentDayOfMonth = useMemo(() => today.getDate(), [today]);
 
-  // Auto reset daily checklist on a new calendar day
+  // Auto reset daily checklist on a brand new calendar day (only when day truly rolled over)
   useEffect(() => {
-    if (state.lastCompletedDate !== todayDateStr) {
+    if (state.lastCompletedDate && state.lastCompletedDate !== todayDateStr) {
       setState(prev => ({
         ...prev,
         completedDailyIds: [],
@@ -611,11 +627,13 @@ export function useFinancialStore() {
         } catch (e) {
           console.error('Falha ao salvar fechamento no localStorage:', e);
         }
+        // Immediate sync to Firestore
+        syncToCloud(nextState);
         return nextState;
       });
       return newRecord;
     },
-    []
+    [syncToCloud]
   );
 
   const updateWeeklyClosure = useCallback((id: string, updated: Partial<WeeklyClosureRecord>) => {
@@ -632,9 +650,10 @@ export function useFinancialStore() {
       } catch (e) {
         console.error('Falha ao atualizar fechamento no localStorage:', e);
       }
+      syncToCloud(nextState);
       return nextState;
     });
-  }, []);
+  }, [syncToCloud]);
 
   const deleteWeeklyClosure = useCallback((id: string) => {
     setState(prev => {
@@ -648,9 +667,10 @@ export function useFinancialStore() {
       } catch (e) {
         console.error('Falha ao excluir fechamento no localStorage:', e);
       }
+      syncToCloud(nextState);
       return nextState;
     });
-  }, []);
+  }, [syncToCloud]);
 
   // Reset to factory defaults
   const resetToFactoryDefaults = useCallback(() => {
@@ -738,6 +758,7 @@ export function useFinancialStore() {
     exportDataJson,
     importDataJson,
     syncStatus,
+    lastSyncTime,
     forceSyncCloud: () => syncToCloud(state),
   };
 }

@@ -25,6 +25,9 @@ interface DirectoryAndBanksViewProps {
   onRemoveContact: (id: string) => void;
   onRemoveBankAccount?: (id: string) => void;
   onRemoveFolderPath?: (id: string) => void;
+  onUpdateBankAccount?: (id: string, updated: Partial<BankAccountItem>) => void;
+  onUpdateFolderPath?: (id: string, updated: Partial<FolderPathItem>) => void;
+  onUpdateContact?: (id: string, updated: Partial<ContactItem>) => void;
 }
 
 export const DirectoryAndBanksView: React.FC<DirectoryAndBanksViewProps> = ({

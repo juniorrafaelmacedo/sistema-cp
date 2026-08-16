@@ -71,6 +71,7 @@ export default function App() {
     exportDataJson,
     importDataJson,
     syncStatus,
+    lastSyncTime,
     forceSyncCloud,
   } = useFinancialStore();
 
@@ -269,6 +270,7 @@ export default function App() {
         currentUser={currentUser}
         onLogout={handleLogout}
         syncStatus={syncStatus}
+        lastSyncTime={lastSyncTime}
         onForceSync={() => {
           forceSyncCloud();
           showToast('Nuvem Sincronizada', 'Dados do financeiro sincronizados com o Firebase!');

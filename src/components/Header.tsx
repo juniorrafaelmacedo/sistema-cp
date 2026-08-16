@@ -40,6 +40,7 @@ interface HeaderProps {
   currentUser?: UserProfile | null;
   onLogout?: () => void;
   syncStatus?: 'connected' | 'syncing' | 'offline';
+  lastSyncTime?: string | null;
   onForceSync?: () => void;
 }
 
@@ -60,6 +61,7 @@ export const Header: React.FC<HeaderProps> = ({
   currentUser,
   onLogout,
   syncStatus = 'connected',
+  lastSyncTime,
   onForceSync,
 }) => {
   const [showUserDropdown, setShowUserDropdown] = useState(false);
@@ -126,7 +128,7 @@ export const Header: React.FC<HeaderProps> = ({
                     {syncStatus === 'syncing'
                       ? 'Sincronizando Nuvem...'
                       : syncStatus === 'connected'
-                      ? 'Nuvem Conectada (Firebase)'
+                      ? `Nuvem Conectada${lastSyncTime ? ` (${lastSyncTime})` : ''}`
                       : 'Offline'}
                   </span>
                 </button>

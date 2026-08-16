@@ -51,7 +51,7 @@ export const MonthlyDuesView: React.FC<MonthlyDuesViewProps> = ({
   const [newDescription, setNewDescription] = useState('');
   const [newDueRule, setNewDueRule] = useState<'inicio_mes' | '5o_dia_util' | 'dia_20' | 'data_vencimento' | 'custom'>('dia_20');
   const [newDueDisplay, setNewDueDisplay] = useState('');
-  const [newPaymentMethod, setNewPaymentMethod] = useState<'boleto' | 'transferencia' | 'debito' | 'outros'>('boleto');
+  const [newPaymentMethod, setNewPaymentMethod] = useState<'boleto' | 'transferencia' | 'debito_automatico' | 'conforme_solicitacao'>('boleto');
   const [newAlert, setNewAlert] = useState('');
   const [newGuidelines, setNewGuidelines] = useState('');
 
@@ -83,7 +83,7 @@ export const MonthlyDuesView: React.FC<MonthlyDuesViewProps> = ({
       description: newDescription.trim() || 'Vencimento mensal programado',
       dueRule: newDueRule,
       dueDisplay: newDueDisplay.trim() || (newDueRule === 'dia_20' ? 'Dia 20 de cada mês' : 'Data de Vencimento'),
-      category: 'outros',
+      status: 'pending',
       paymentMethod: newPaymentMethod,
       alert: newAlert.trim() || undefined,
       actionableSteps: parsedSteps.length > 0 ? parsedSteps : ['Conferir valor e lançar no banco para pagamento'],
